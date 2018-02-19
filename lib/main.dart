@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:material_page_reveal_published/pages.dart';
 import 'package:meta/meta.dart';
@@ -75,10 +77,13 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ),
           _transitionAmount != 0.0 && _transitionAmount != null
-            ? new PageUi(
-                new VisiblePage(
-                  pages[_activeIndex + (_transitionAmount / _transitionAmount.abs()).round()],
-                  _transitionAmount.abs(),
+            ? new ClipOval(
+                clipper: new CircleRevealClipper(_transitionAmount),
+                child: new PageUi(
+                  new VisiblePage(
+                    pages[_activeIndex + (_transitionAmount / _transitionAmount.abs()).round()],
+                    _transitionAmount.abs(),
+                  ),
                 ),
               )
             : new Container(),
@@ -98,6 +103,35 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
   }
+}
+
+class CircleRevealClipper extends CustomClipper<Rect> {
+
+  double revealPercent;
+
+  CircleRevealClipper(
+    this.revealPercent,
+  );
+
+  @override
+  Rect getClip(Size size) {
+    final epicenter = new Offset(size.width * 0.5, size.height * 0.9);
+
+    // Calculate distance from epicenter to top left corner to make sure we fill the screen.
+    double theta = atan(epicenter.dy / epicenter.dx);
+    final distanceToCorner = epicenter.dy / sin(theta);
+
+    final radius = distanceToCorner * revealPercent;
+    final diameter = 2 * radius;
+
+    return new Rect.fromLTWH(epicenter.dx - radius, epicenter.dy - radius, diameter, diameter);
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Rect> oldClipper) {
+    return true;
+  }
+
 }
 
 /// PageUi
