@@ -207,6 +207,11 @@ class PageUi extends StatelessWidget {
 /// PagerIndiciator renders the entire set of bubbles at the bottom of the
 /// screen that show what page you're currently on and how close you are to
 /// the next page.
+const MAX_INDICATOR_SIZE = 40.0;
+const MIN_INDICATOR_SIZE = 15.0;
+const INDICATOR_X_PADDING = 5.0;
+const BUBBLE_COLOR = const Color(0x88FFFFFF);
+
 class PagerIndicatorUi extends StatelessWidget {
 
   final PagerIndicator viewModel;
@@ -233,7 +238,7 @@ class PagerIndicatorUi extends StatelessWidget {
       }
 
       return new Padding(
-        padding: const EdgeInsets.only(top: 15.0, bottom: 15.0, left: 5.0, right: 5.0),
+        padding: const EdgeInsets.only(top: 15.0, bottom: 15.0, left: INDICATOR_X_PADDING, right: INDICATOR_X_PADDING),
         child: new PagerBubbleUi(
           bubble: new PagerBubble(
               page.iconAssetPath,
@@ -246,14 +251,23 @@ class PagerIndicatorUi extends StatelessWidget {
       );
     }).toList();
 
+    // Calculate the horizontal translation of the pager indicator
+    final halfIndicatorWidth = ((pages.length * MAX_INDICATOR_SIZE) + (pages.length * INDICATOR_X_PADDING * 2)) / 2;
+    final startingPosition = halfIndicatorWidth - INDICATOR_X_PADDING - (MAX_INDICATOR_SIZE / 2.0);
+    final indicatorXPosition = startingPosition
+        - ((viewModel.activeIndex + viewModel.transitionAmount) * (MAX_INDICATOR_SIZE + (2 * INDICATOR_X_PADDING)));
+
     return new Column(
       children: [
         new Expanded(
           child: new Container(),
         ),
-        new Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: bubblesUi,
+        new Transform(
+          transform: new Matrix4.translationValues(indicatorXPosition, 0.0, 0.0),
+          child: new Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: bubblesUi,
+          ),
         )
       ]
     );
@@ -262,10 +276,6 @@ class PagerIndicatorUi extends StatelessWidget {
 
 /// PagerBubbleUi renders a single bubble in the Pager Indicator.
 class PagerBubbleUi extends StatelessWidget {
-
-  static const MAX_INDICATOR_SIZE = 40.0;
-  static const MIN_INDICATOR_SIZE = 15.0;
-  static const BUBBLE_COLOR = const Color(0x88FFFFFF);
 
   final PagerBubble bubble;
 
