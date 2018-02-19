@@ -59,6 +59,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
       // Cleanup
       _dragStart = null;
+      _transitionAmount = 0.0;
     });
   }
 
@@ -67,7 +68,20 @@ class _MyHomePageState extends State<MyHomePage> {
     return new Scaffold(
       body: new Stack(
         children: [
-          new PageUi(pages[_activeIndex]),
+          new PageUi(
+            new VisiblePage(
+              pages[_activeIndex],
+              1.0,
+            ),
+          ),
+          _transitionAmount != 0.0 && _transitionAmount != null
+            ? new PageUi(
+                new VisiblePage(
+                  pages[_activeIndex + (_transitionAmount / _transitionAmount.abs()).round()],
+                  _transitionAmount.abs(),
+                ),
+              )
+            : new Container(),
           new PagerIndicatorUi(
             viewModel: new PagerIndicator(
               pages,
@@ -91,42 +105,60 @@ class _MyHomePageState extends State<MyHomePage> {
 /// Render a fullscreen page that includes a hero, title, and description.
 class PageUi extends StatelessWidget {
 
-  final Page page;
+  final VisiblePage visiblePage;
 
-  PageUi(this.page);
+  PageUi(this.visiblePage);
 
   @override
   Widget build(BuildContext context) {
     return new Container(
       width: double.INFINITY,
-      color: page.color,
+      color: visiblePage.page.color,
       child: new Padding(
         padding: const EdgeInsets.all(20.0),
         child: new Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            new Image.asset(
-              page.heroAssetPath,
-              width: 200.0,
-              height: 200.0,
-            ),
-            new Padding(
-              padding: const EdgeInsets.only(top: 10.0, bottom: 10.0),
-              child: new Text(
-                page.title,
-                style: new TextStyle(
-                  fontSize: 34.0,
-                  fontFamily: 'FlamanteRoma',
+            new Transform(
+              transform: new Matrix4.translationValues(0.0, 50.0 * (1.0 - visiblePage.visibleAmount), 0.0),
+              child: new Opacity(
+                opacity: visiblePage.visibleAmount,
+                child: new Image.asset(
+                  visiblePage.page.heroAssetPath,
+                  width: 200.0,
+                  height: 200.0,
                 ),
               ),
             ),
-            new Padding(
-              padding: const EdgeInsets.only(bottom: 75.0),
-              child: new Text(
-                page.body,
-                textAlign: TextAlign.center,
-                style: new TextStyle(
-                  fontSize: 18.0,
+            new Transform(
+              transform: new Matrix4.translationValues(0.0, 30.0 * (1.0 - visiblePage.visibleAmount), 0.0),
+              child: new Opacity(
+                opacity: visiblePage.visibleAmount,
+                child: new Padding(
+                  padding: const EdgeInsets.only(top: 10.0, bottom: 10.0),
+                  child: new Text(
+                    visiblePage.page.title,
+                    style: new TextStyle(
+                      fontSize: 34.0,
+                      fontFamily: 'FlamanteRoma',
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            new Transform(
+              transform: new Matrix4.translationValues(0.0, 30.0 * (1.0 - visiblePage.visibleAmount), 0.0),
+              child: new Opacity(
+                opacity: visiblePage.visibleAmount,
+                child: new Padding(
+                  padding: const EdgeInsets.only(bottom: 75.0),
+                  child: new Text(
+                    visiblePage.page.body,
+                    textAlign: TextAlign.center,
+                    style: new TextStyle(
+                      fontSize: 18.0,
+                    ),
+                  ),
                 ),
               ),
             ),

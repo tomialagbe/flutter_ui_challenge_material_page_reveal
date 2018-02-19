@@ -40,6 +40,16 @@ class Page {
   );
 }
 
+class VisiblePage {
+  final Page page;
+  final double visibleAmount;
+
+  VisiblePage(
+    this.page,
+    this.visibleAmount,
+  );
+}
+
 class PagerIndicator {
   final List<Page> pages;
   final int activeIndex;
