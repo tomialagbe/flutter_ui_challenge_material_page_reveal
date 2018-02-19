@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:material_page_reveal_published/pages.dart';
@@ -32,7 +33,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   int _activeIndex = 0;
   Offset _dragStart;
-  double _transitionAmount; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
+  double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
 
   _onDragStart(DragStartDetails details) {
     _dragStart = details.globalPosition;
@@ -217,7 +218,19 @@ class PagerIndicatorUi extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     List<Widget> bubblesUi = viewModel.pages.map((Page page) {
-      final isActive = viewModel.pages.indexOf(page) == viewModel.activeIndex;
+      final pageIndex = viewModel.pages.indexOf(page);
+      final isActive = pageIndex == viewModel.activeIndex;
+      final isHollow = !isActive && pageIndex > viewModel.activeIndex;
+
+      var transitionAmount = 0.0;
+      final transitionPosition = viewModel.activeIndex + viewModel.transitionAmount;
+      if (isActive) {
+        transitionAmount = 1.0 - viewModel.transitionAmount.abs();
+      } else if ((pageIndex - transitionPosition).abs() < 1.0){
+        print('Position: $transitionPosition');
+        transitionAmount = (transitionPosition - viewModel.activeIndex).abs();
+        print('Transition amount: $transitionAmount');
+      }
 
       return new Padding(
         padding: const EdgeInsets.only(top: 15.0, bottom: 15.0, left: 5.0, right: 5.0),
@@ -225,9 +238,9 @@ class PagerIndicatorUi extends StatelessWidget {
           bubble: new PagerBubble(
               page.iconAssetPath,
               page.color,
-              false,
+              isHollow,
               isActive,
-              0.0
+              transitionAmount,
           ),
         ),
       );
@@ -250,8 +263,9 @@ class PagerIndicatorUi extends StatelessWidget {
 /// PagerBubbleUi renders a single bubble in the Pager Indicator.
 class PagerBubbleUi extends StatelessWidget {
 
-  static const MAX_INDICATOR_SIZE = 50.0;
-  static const MIN_INDICATOR_SIZE = 20.0;
+  static const MAX_INDICATOR_SIZE = 40.0;
+  static const MIN_INDICATOR_SIZE = 15.0;
+  static const BUBBLE_COLOR = const Color(0x88FFFFFF);
 
   final PagerBubble bubble;
 
@@ -266,18 +280,37 @@ class PagerBubbleUi extends StatelessWidget {
       height: MAX_INDICATOR_SIZE,
       child: new Center(
         child: new Container(
-          width: bubble.isActive ? MAX_INDICATOR_SIZE : MIN_INDICATOR_SIZE,
-          height: bubble.isActive ? MAX_INDICATOR_SIZE : MIN_INDICATOR_SIZE,
+          width: lerpDouble(
+              MIN_INDICATOR_SIZE,
+              MAX_INDICATOR_SIZE,
+              bubble.transitionAmount,
+          ),
+          height: lerpDouble(
+              MIN_INDICATOR_SIZE,
+              MAX_INDICATOR_SIZE,
+              bubble.transitionAmount,
+          ),
           decoration: new BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.white,
+            color: bubble.isHollow
+                ? BUBBLE_COLOR.withAlpha((0x88 * (bubble.transitionAmount).abs()).round())
+                : BUBBLE_COLOR,
+            border: bubble.isHollow
+              ? new Border.all(
+                  color: bubble.isHollow
+                    ? BUBBLE_COLOR
+                    : BUBBLE_COLOR.withAlpha((0x88 * (1.0 - bubble.transitionAmount).abs()).round()),
+                  width: 3.0,
+                )
+              : null,
           ),
-          child: bubble.isActive
-            ? new Image.asset(
-                bubble.iconAssetPath,
-                color: bubble.color,
+          child: new Opacity(
+                opacity: bubble.transitionAmount.abs(),
+                child: new Image.asset(
+                  bubble.iconAssetPath,
+                  color: bubble.color,
+                ),
               )
-            : new Container(),
         ),
       ),
     );
