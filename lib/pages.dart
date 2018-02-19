@@ -39,3 +39,19 @@ class Page {
     this.iconAssetPath,
   );
 }
+
+class PagerBubble {
+  final String iconAssetPath;
+  final Color color;
+  final bool isHollow;
+  final bool isActive;
+  final double transitionAmount;
+
+  PagerBubble(
+    this.iconAssetPath,
+    this.color,
+    this.isHollow,
+    this.isActive,
+    this.transitionAmount,
+  );
+}
