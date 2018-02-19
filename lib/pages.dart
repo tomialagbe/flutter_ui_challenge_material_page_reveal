@@ -40,6 +40,18 @@ class Page {
   );
 }
 
+class PagerIndicator {
+  final List<Page> pages;
+  final int activeIndex;
+  final double transitionAmount; // [-1.0, 1.0] where negative means moving to previous and positive means moving to next.
+
+  PagerIndicator(
+    this.pages,
+    this.activeIndex,
+    this.transitionAmount,
+  );
+}
+
 class PagerBubble {
   final String iconAssetPath;
   final Color color;

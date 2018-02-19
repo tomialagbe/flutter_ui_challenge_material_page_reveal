@@ -26,13 +26,60 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
 
+  static const FULL_TRANSITION_PX = 300.0;
+
+  int _activeIndex = 0;
+  Offset _dragStart;
+  double _transitionAmount; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
+
+  _onDragStart(DragStartDetails details) {
+    _dragStart = details.globalPosition;
+  }
+
+  _onDrag(DragUpdateDetails details) {
+    setState(() {
+      final newPosition = details.globalPosition;
+      final dx = _dragStart.dx - newPosition.dx;
+
+      final minTransitionAmount = _activeIndex > 0 ? -1.0 : 0.0;
+      final maxTransitionAmount = _activeIndex < pages.length - 1 ? 1.0 : 0.0;
+
+      _transitionAmount = (dx / FULL_TRANSITION_PX).clamp(minTransitionAmount, maxTransitionAmount);
+//      print('Transition amount: $_transitionAmount');
+    });
+  }
+
+  _onDragEnd(DragEndDetails details) {
+    setState(() {
+      if (null != _transitionAmount) {
+        if (_transitionAmount.abs() > 0.5) {
+          _activeIndex += (_transitionAmount / _transitionAmount.abs()).round();
+        }
+      }
+
+      // Cleanup
+      _dragStart = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return new Scaffold(
       body: new Stack(
         children: [
-          new PageUi(pages[0]),
-          new PagerIndicator(pages: pages),
+          new PageUi(pages[_activeIndex]),
+          new PagerIndicatorUi(
+            viewModel: new PagerIndicator(
+              pages,
+              _activeIndex,
+              _transitionAmount
+            ),
+          ),
+          new GestureDetector(
+            onHorizontalDragStart: _onDragStart,
+            onHorizontalDragUpdate: _onDrag,
+            onHorizontalDragEnd: _onDragEnd,
+          )
         ],
       ),
     );
@@ -93,25 +140,27 @@ class PageUi extends StatelessWidget {
 /// PagerIndiciator renders the entire set of bubbles at the bottom of the
 /// screen that show what page you're currently on and how close you are to
 /// the next page.
-class PagerIndicator extends StatelessWidget {
+class PagerIndicatorUi extends StatelessWidget {
 
-  final List<Page> pages;
+  final PagerIndicator viewModel;
 
-  PagerIndicator({
-    @required this.pages,
+  PagerIndicatorUi({
+    @required this.viewModel,
   });
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> bubblesUi = pages.map((Page page) {
+    List<Widget> bubblesUi = viewModel.pages.map((Page page) {
+      final isActive = viewModel.pages.indexOf(page) == viewModel.activeIndex;
+
       return new Padding(
-        padding: const EdgeInsets.all(15.0),
+        padding: const EdgeInsets.only(top: 15.0, bottom: 15.0, left: 5.0, right: 5.0),
         child: new PagerBubbleUi(
           bubble: new PagerBubble(
               page.iconAssetPath,
               page.color,
               false,
-              true,
+              isActive,
               0.0
           ),
         ),
@@ -149,13 +198,21 @@ class PagerBubbleUi extends StatelessWidget {
     return new Container(
       width: MAX_INDICATOR_SIZE,
       height: MAX_INDICATOR_SIZE,
-      decoration: new BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white,
-      ),
-      child: new Image.asset(
-        bubble.iconAssetPath,
-        color: bubble.color,
+      child: new Center(
+        child: new Container(
+          width: bubble.isActive ? MAX_INDICATOR_SIZE : MIN_INDICATOR_SIZE,
+          height: bubble.isActive ? MAX_INDICATOR_SIZE : MIN_INDICATOR_SIZE,
+          decoration: new BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+          ),
+          child: bubble.isActive
+            ? new Image.asset(
+                bubble.iconAssetPath,
+                color: bubble.color,
+              )
+            : new Container(),
+        ),
       ),
     );
   }
