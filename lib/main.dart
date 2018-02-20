@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 
@@ -29,13 +30,16 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
-  static const FULL_TRANSITION_PX = 300.0; // How far the user drags until a page transition is complete
   static const PERCENT_PER_MILLISECOND = 0.005; // How quickly a transition animation should move
 
+  // Render state at a given moment
   int _activeIndex = 0;
-  Offset _dragStart;
   double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
 
+  // Dragging
+  StreamController<PageDragUpdate> pageDragUpdateStreamController;
+
+  // Animation after dragging
   int _nextIndex;
   double _startTransitionAmount;
   double _endTransitionAmount;
@@ -44,6 +48,47 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+
+    pageDragUpdateStreamController = new StreamController<PageDragUpdate>();
+    pageDragUpdateStreamController.stream.listen((PageDragUpdate update) {
+      if (update.dragUpdateType == DragUpdateType.dragging) {
+        setState(() {
+          print('onDragEvent: ${update.dragDirection}, ${update.transitionAmount}');
+          if (update.dragDirection == DragDirection.rightToLeft) {
+            _transitionAmount = update.transitionAmount;
+          } else {
+            _transitionAmount = -update.transitionAmount;
+          }
+        });
+      } else if (update.dragUpdateType == DragUpdateType.dragEnded) {
+        setState(() {
+          // The user is done dragging. Animate the rest of the way.
+          if (null != update.transitionAmount) {
+            _startTransitionAmount = update.dragDirection == DragDirection.rightToLeft ? update.transitionAmount : -update.transitionAmount;
+            var duration;
+            if (_transitionAmount.abs() > 0.5) {
+              // User dragged far enough to continue to next screen.
+              _nextIndex = update.dragDirection == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
+              _endTransitionAmount = _transitionAmount / _transitionAmount.abs();
+
+              final transitionRemaining = 1.0 - _transitionAmount.abs();
+              duration = new Duration(milliseconds: (transitionRemaining / PERCENT_PER_MILLISECOND).round());
+              completionAnimationController.duration = duration;
+            } else {
+              // User did not drag far enough to go to next screen. Return to previous screen.
+              _nextIndex = _activeIndex;
+              _endTransitionAmount = 0.0;
+
+              duration = new Duration(milliseconds: (_transitionAmount.abs() / PERCENT_PER_MILLISECOND).round());
+              completionAnimationController.duration = duration;
+            }
+//        print('Animating from: $_startTransitionAmount, to: $_endTransitionAmount, in: ${duration.inMilliseconds}');
+            completionAnimationController.forward(from: 0.0);
+          }
+        });
+      }
+    });
+
     completionAnimationController = new AnimationController(vsync: this)
       ..addListener(() {
 //        print('Updating transition amount: ${completionAnimationController.value}');
@@ -64,56 +109,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    pageDragUpdateStreamController.close();
     completionAnimationController.dispose();
     super.dispose();
-  }
-
-  _onDragStart(DragStartDetails details) {
-    _dragStart = details.globalPosition;
-  }
-
-  _onDrag(DragUpdateDetails details) {
-    setState(() {
-      final newPosition = details.globalPosition;
-      final dx = _dragStart.dx - newPosition.dx;
-
-      final minTransitionAmount = _activeIndex > 0 ? -1.0 : 0.0;
-      final maxTransitionAmount = _activeIndex < pages.length - 1 ? 1.0 : 0.0;
-
-      _transitionAmount = (dx / FULL_TRANSITION_PX).clamp(minTransitionAmount, maxTransitionAmount);
-//      print('Transition amount: $_transitionAmount');
-    });
-  }
-
-  _onDragEnd(DragEndDetails details) {
-    setState(() {
-      // The user is done dragging. Animate the rest of the way.
-      if (null != _transitionAmount) {
-        _startTransitionAmount = _transitionAmount;
-        var duration;
-        if (_transitionAmount.abs() > 0.5) {
-          // User dragged far enough to continue to next screen.
-          _nextIndex = _activeIndex + (_transitionAmount / _transitionAmount.abs()).round();
-          _endTransitionAmount = _transitionAmount / _transitionAmount.abs();
-
-          final transitionRemaining = 1.0 - _transitionAmount.abs();
-          duration = new Duration(milliseconds: (transitionRemaining / PERCENT_PER_MILLISECOND).round());
-          completionAnimationController.duration = duration;
-        } else {
-          // User did not drag far enough to go to next screen. Return to previous screen.
-          _nextIndex = _activeIndex;
-          _endTransitionAmount = 0.0;
-
-          duration = new Duration(milliseconds: (_transitionAmount.abs() / PERCENT_PER_MILLISECOND).round());
-          completionAnimationController.duration = duration;
-        }
-//        print('Animating from: $_startTransitionAmount, to: $_endTransitionAmount, in: ${duration.inMilliseconds}');
-        completionAnimationController.forward(from: 0.0);
-      }
-
-      // Cleanup
-      _dragStart = null;
-    });
   }
 
   @override
@@ -145,17 +143,24 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               _transitionAmount
             ),
           ),
-          new GestureDetector(
-            onHorizontalDragStart: _onDragStart,
-            onHorizontalDragUpdate: _onDrag,
-            onHorizontalDragEnd: _onDragEnd,
-          )
+          new PageDragger(
+            canDragLeftToRight: _activeIndex > 0,
+            canDragRightToLeft: _activeIndex < pages.length - 1,
+            pageDragStream: pageDragUpdateStreamController
+          ),
         ],
       ),
     );
   }
 }
 
+/// CircleRevealClipper
+///
+/// CustomClipper that exposes a circular region of a Widget starting near the
+/// bottom center of the Widget.
+///
+/// When the [revealPercent] is 0.0, nothing is shown. When the [revealPercent]
+/// is 1.0, everything is shown.
 class CircleRevealClipper extends CustomClipper<Rect> {
 
   double revealPercent;
@@ -378,4 +383,109 @@ class PagerBubbleUi extends StatelessWidget {
       ),
     );
   }
+}
+
+/// PageDragger
+///
+/// Detects drag gestures from left to right and right to left and notifies a
+/// stream as the dragging occurs, and when the user lets go.
+class PageDragger extends StatefulWidget {
+
+  final bool canDragRightToLeft;
+  final bool canDragLeftToRight;
+  final StreamController<PageDragUpdate> pageDragStream;
+
+  PageDragger({
+    @required this.pageDragStream,
+    this.canDragRightToLeft = true,
+    this.canDragLeftToRight = true,
+  });
+
+  @override
+  _PageDraggerState createState() => new _PageDraggerState();
+}
+
+class _PageDraggerState extends State<PageDragger> {
+
+  static const FULL_TRANSITION_PX = 300.0; // How far the user drags until a page transition is complete
+
+  int _nextIndex;
+
+  Offset _dragStart;
+  double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
+
+  _onDragStart(DragStartDetails details) {
+    _dragStart = details.globalPosition;
+  }
+
+  _onDrag(DragUpdateDetails details) {
+    setState(() {
+      final newPosition = details.globalPosition;
+      final dx = _dragStart.dx - newPosition.dx;
+
+      final minTransitionAmount = widget.canDragLeftToRight ? -1.0 : 0.0;
+      final maxTransitionAmount = widget.canDragRightToLeft ? 1.0 : 0.0;
+
+      _transitionAmount = (dx / FULL_TRANSITION_PX).clamp(minTransitionAmount, maxTransitionAmount);
+
+      widget.pageDragStream.add(
+          new PageDragUpdate(
+              DragUpdateType.dragging,
+              _transitionAmount > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight,
+              _transitionAmount.abs()
+          )
+      );
+
+//      print('Transition amount: $_transitionAmount');
+    });
+  }
+
+  _onDragEnd(DragEndDetails details) {
+    setState(() {
+      // The user is done dragging. Animate the rest of the way.
+      if (null != _transitionAmount) {
+        widget.pageDragStream.add(
+            new PageDragUpdate(
+                DragUpdateType.dragEnded,
+                _transitionAmount > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight,
+                _transitionAmount.abs()
+            )
+        );
+      }
+
+      // Cleanup
+      _dragStart = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return new GestureDetector(
+      onHorizontalDragStart: _onDragStart,
+      onHorizontalDragUpdate: _onDrag,
+      onHorizontalDragEnd: _onDragEnd,
+    );
+  }
+}
+
+enum DragDirection {
+  rightToLeft,
+  leftToRight,
+}
+
+enum DragUpdateType {
+  dragging,
+  dragEnded,
+}
+
+class PageDragUpdate {
+  final dragUpdateType;
+  final dragDirection;
+  final transitionAmount;
+
+  PageDragUpdate(
+      this.dragUpdateType,
+      this.dragDirection,
+      this.transitionAmount,
+      );
 }
