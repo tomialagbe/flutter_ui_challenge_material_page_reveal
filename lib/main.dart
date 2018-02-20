@@ -32,12 +32,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   // Render state at a given moment
   int _activeIndex = 0;
-  double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
+  DragDirection _dragDirection;
+  double _transitionPercent = 0.0;
 
   // Dragging and Animating
   StreamController<PageTransitionUpdate> _pageTransitionUpdateStreamController;
   AnimatedPageDragger _animatedPageDragger;
-  int _nextIndex;
+  int _nextIndexAfterAnimation = 0;
 
   @override
   void initState() {
@@ -62,11 +63,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   _onDragging(PageTransitionUpdate update) {
     setState(() {
-      if (update.direction == DragDirection.rightToLeft) {
-        _transitionAmount = update.transitionPercent;
-      } else {
-        _transitionAmount = -update.transitionPercent;
-      }
+      _dragDirection = update.direction;
+      _transitionPercent = update.transitionPercent;
     });
   }
 
@@ -74,34 +72,36 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     setState(() {
       // The user is done dragging. Animate the rest of the way.
       var transitionGoal;
-      if (_transitionAmount.abs() > 0.5) {
+      if (_transitionPercent > 0.5) {
         // User dragged far enough to continue to next screen.
         transitionGoal = TransitionGoal.openPage;
-        _nextIndex = update.direction == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
+        print('Drag end direction: ${update.direction}');
+        _nextIndexAfterAnimation = update.direction == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
       } else {
         // User did not drag far enough to go to next screen. Return to previous screen.
         transitionGoal = TransitionGoal.closePage;
-        _nextIndex = _activeIndex;
+        _nextIndexAfterAnimation = _activeIndex;
       }
 
       _animatedPageDragger = new AnimatedPageDragger(
         direction: update.direction,
         transitionGoal: transitionGoal,
         transitionAmount: update.transitionPercent,
-        vsync: this,
         pageAnimateStream: _pageTransitionUpdateStreamController,
+        vsync: this,
       )..run();
     });
   }
 
   _onAnimating(PageTransitionUpdate update) {
-    setState(() => _transitionAmount = update.transitionPercent);
+    setState(() => _transitionPercent = update.transitionPercent);
   }
 
   _onAnimationEnded() {
     setState(() {
-      _transitionAmount = 0.0;
-      _activeIndex = _nextIndex;
+      _dragDirection = null;
+      _transitionPercent = 0.0;
+      _activeIndex = _nextIndexAfterAnimation;
 
       _animatedPageDragger.dispose();
     });
@@ -115,33 +115,45 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    var signedTransitionAmount;
+    if (_dragDirection != null) {
+      signedTransitionAmount = _dragDirection == DragDirection.rightToLeft
+          ? _transitionPercent
+          : -_transitionPercent;
+    } else {
+      signedTransitionAmount = 0.0;
+    }
+
+    final nextPageIndex = (_activeIndex + (_dragDirection == DragDirection.rightToLeft ? 1 : -1))
+        .clamp(0.0, pages.length - 1)
+        .round();
+    print('Active index: $_activeIndex. Next index: $nextPageIndex. Transition percent: $_transitionPercent');
+
     return new Scaffold(
       body: new Stack(
         children: [
           new PageUi(
-            new VisiblePage(
-              pages[_activeIndex],
-              1.0,
-            ),
+            page: pages[_activeIndex],
           ),
-          _transitionAmount != 0.0 && _transitionAmount != null
-            ? new ClipOval(
-                clipper: new CircleRevealClipper(_transitionAmount),
-                child: new PageUi(
-                  new VisiblePage(
-                    pages[_activeIndex + (_transitionAmount / _transitionAmount.abs()).round()],
-                    _transitionAmount.abs(),
-                  ),
-                ),
-              )
-            : new Container(),
+
+          new PageReveal(
+            revealPercent: _transitionPercent,
+            child: _dragDirection != null
+              ? new PageUi(
+                  page: pages[nextPageIndex],
+                  percentVisible: _transitionPercent,
+                )
+              : null,
+          ),
+
           new PagerIndicatorUi(
-            viewModel: new PagerIndicator(
+            viewModel: new PagerIndicatorViewModel(
               pages,
               _activeIndex,
-              _transitionAmount
+                signedTransitionAmount
             ),
           ),
+
           new PageDragger(
             canDragLeftToRight: _activeIndex > 0,
             canDragRightToLeft: _activeIndex < pages.length - 1,
@@ -152,6 +164,30 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
   }
 }
+
+/// PageReveal
+///
+/// Widget that reveals its child starting with a circle at the bottom center of
+/// the child Widget.
+class PageReveal extends StatelessWidget {
+
+  final double revealPercent;
+  final Widget child;
+
+  PageReveal({
+    this.revealPercent,
+    this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return new ClipOval(
+      clipper: new CircleRevealClipper(revealPercent),
+      child: child,
+    );
+  }
+}
+
 
 /// CircleRevealClipper
 ///
@@ -194,28 +230,32 @@ class CircleRevealClipper extends CustomClipper<Rect> {
 /// Render a fullscreen page that includes a hero, title, and description.
 class PageUi extends StatelessWidget {
 
-  final VisiblePage visiblePage;
+  final PageViewModel page;
+  final double percentVisible;
 
-  PageUi(this.visiblePage);
+  PageUi({
+    this.page,
+    this.percentVisible = 1.0,
+  });
 
   @override
   Widget build(BuildContext context) {
     return new Container(
       width: double.INFINITY,
-      color: visiblePage.page.color,
+      color: page.color,
       child: new Padding(
         padding: const EdgeInsets.all(20.0),
         child: new Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             new Transform(
-              transform: new Matrix4.translationValues(0.0, 50.0 * (1.0 - visiblePage.visibleAmount), 0.0),
+              transform: new Matrix4.translationValues(0.0, 50.0 * (1.0 - percentVisible), 0.0),
               child: new Opacity(
-                opacity: visiblePage.visibleAmount,
+                opacity: percentVisible,
                 child: new Padding(
                   padding: const EdgeInsets.only(bottom: 25.0),
                   child: new Image.asset(
-                    visiblePage.page.heroAssetPath,
+                    page.heroAssetPath,
                     width: 200.0,
                     height: 200.0,
                   ),
@@ -223,13 +263,13 @@ class PageUi extends StatelessWidget {
               ),
             ),
             new Transform(
-              transform: new Matrix4.translationValues(0.0, 30.0 * (1.0 - visiblePage.visibleAmount), 0.0),
+              transform: new Matrix4.translationValues(0.0, 30.0 * (1.0 - percentVisible), 0.0),
               child: new Opacity(
-                opacity: visiblePage.visibleAmount,
+                opacity: percentVisible,
                 child: new Padding(
                   padding: const EdgeInsets.only(top: 10.0, bottom: 10.0),
                   child: new Text(
-                    visiblePage.page.title,
+                    page.title,
                     style: new TextStyle(
                       fontSize: 34.0,
                       fontFamily: 'FlamanteRoma',
@@ -239,13 +279,13 @@ class PageUi extends StatelessWidget {
               ),
             ),
             new Transform(
-              transform: new Matrix4.translationValues(0.0, 30.0 * (1.0 - visiblePage.visibleAmount), 0.0),
+              transform: new Matrix4.translationValues(0.0, 30.0 * (1.0 - percentVisible), 0.0),
               child: new Opacity(
-                opacity: visiblePage.visibleAmount,
+                opacity: percentVisible,
                 child: new Padding(
                   padding: const EdgeInsets.only(bottom: 75.0),
                   child: new Text(
-                    visiblePage.page.body,
+                    page.body,
                     textAlign: TextAlign.center,
                     style: new TextStyle(
                       fontSize: 18.0,
@@ -271,7 +311,7 @@ const BUBBLE_COLOR = const Color(0x88FFFFFF);
 
 class PagerIndicatorUi extends StatelessWidget {
 
-  final PagerIndicator viewModel;
+  final PagerIndicatorViewModel viewModel;
 
   PagerIndicatorUi({
     @required this.viewModel,
@@ -279,7 +319,7 @@ class PagerIndicatorUi extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> bubblesUi = viewModel.pages.map((Page page) {
+    List<Widget> bubblesUi = viewModel.pages.map((PageViewModel page) {
       final pageIndex = viewModel.pages.indexOf(page);
       final isActive = pageIndex == viewModel.activeIndex;
       final isHollow = !isActive && pageIndex > viewModel.activeIndex;
@@ -297,7 +337,7 @@ class PagerIndicatorUi extends StatelessWidget {
       return new Padding(
         padding: const EdgeInsets.only(top: 15.0, bottom: 15.0, left: INDICATOR_X_PADDING, right: INDICATOR_X_PADDING),
         child: new PagerBubbleUi(
-          bubble: new PagerBubble(
+          bubble: new PagerBubbleViewModel(
               page.iconAssetPath,
               page.color,
               isHollow,
@@ -334,7 +374,7 @@ class PagerIndicatorUi extends StatelessWidget {
 /// PagerBubbleUi renders a single bubble in the Pager Indicator.
 class PagerBubbleUi extends StatelessWidget {
 
-  final PagerBubble bubble;
+  final PagerBubbleViewModel bubble;
 
   PagerBubbleUi({
     @required this.bubble,
@@ -360,8 +400,8 @@ class PagerBubbleUi extends StatelessWidget {
           decoration: new BoxDecoration(
             shape: BoxShape.circle,
             color: bubble.isHollow
-                ? BUBBLE_COLOR.withAlpha((0x88 * (bubble.transitionAmount).abs()).round())
-                : BUBBLE_COLOR,
+              ? BUBBLE_COLOR.withAlpha((0x88 * (bubble.transitionAmount).abs()).round())
+              : BUBBLE_COLOR,
             border: bubble.isHollow
               ? new Border.all(
                   color: bubble.isHollow
@@ -372,12 +412,12 @@ class PagerBubbleUi extends StatelessWidget {
               : null,
           ),
           child: new Opacity(
-                opacity: bubble.transitionAmount.abs(),
-                child: new Image.asset(
-                  bubble.iconAssetPath,
-                  color: bubble.color,
-                ),
-              )
+            opacity: bubble.transitionAmount.abs(),
+            child: new Image.asset(
+              bubble.iconAssetPath,
+              color: bubble.color,
+            ),
+          )
         ),
       ),
     );
@@ -408,10 +448,9 @@ class _PageDraggerState extends State<PageDragger> {
 
   static const FULL_TRANSITION_PX = 300.0; // How far the user drags until a page transition is complete
 
-  int _nextIndex;
-
   Offset _dragStart;
-  double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
+  DragDirection _dragDirection;
+  double _transitionAmount = 0.0;
 
   _onDragStart(DragStartDetails details) {
     _dragStart = details.globalPosition;
@@ -421,21 +460,20 @@ class _PageDraggerState extends State<PageDragger> {
     setState(() {
       final newPosition = details.globalPosition;
       final dx = _dragStart.dx - newPosition.dx;
+      _dragDirection = dx > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight;
 
       final minTransitionAmount = widget.canDragLeftToRight ? -1.0 : 0.0;
       final maxTransitionAmount = widget.canDragRightToLeft ? 1.0 : 0.0;
 
-      _transitionAmount = (dx / FULL_TRANSITION_PX).clamp(minTransitionAmount, maxTransitionAmount);
+      _transitionAmount = (dx / FULL_TRANSITION_PX).clamp(minTransitionAmount, maxTransitionAmount).abs();
 
       widget.pageDragStream.add(
-          new PageTransitionUpdate(
-              PageTransitionUpdateType.dragging,
-              _transitionAmount > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight,
-              _transitionAmount.abs()
-          )
+        new PageTransitionUpdate(
+          PageTransitionUpdateType.dragging,
+          _dragDirection,
+          _transitionAmount,
+        )
       );
-
-//      print('Transition amount: $_transitionAmount');
     });
   }
 
@@ -444,11 +482,11 @@ class _PageDraggerState extends State<PageDragger> {
       // The user is done dragging. Animate the rest of the way.
       if (null != _transitionAmount) {
         widget.pageDragStream.add(
-            new PageTransitionUpdate(
-                PageTransitionUpdateType.dragEnded,
-                _transitionAmount > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight,
-                _transitionAmount.abs()
-            )
+          new PageTransitionUpdate(
+            PageTransitionUpdateType.dragEnded,
+            _dragDirection,
+            _transitionAmount
+          )
         );
       }
 
@@ -485,22 +523,21 @@ class AnimatedPageDragger {
     @required this.direction,
     @required this.transitionGoal,
     @required transitionAmount,
-    @required TickerProvider vsync,
     @required StreamController<PageTransitionUpdate> pageAnimateStream,
+    @required TickerProvider vsync,
   }) {
-    final startTransitionAmount = direction == DragDirection.rightToLeft ? transitionAmount : -transitionAmount;
+    final startTransitionAmount = transitionAmount;
     var endTransitionAmount;
     var duration;
+
     if (transitionGoal == TransitionGoal.openPage) {
       // Animate the transition the rest of the way.
-      endTransitionAmount = direction == DragDirection.rightToLeft ? 1.0 : -1.0;
-
+      endTransitionAmount = 1.0;
       final transitionRemaining = 1.0 - transitionAmount;
       duration = new Duration(milliseconds: (transitionRemaining / PERCENT_PER_MILLISECOND).round());
     } else {
       // Animate the transition back to zero.
       endTransitionAmount = 0.0;
-
       duration = new Duration(milliseconds: (transitionAmount / PERCENT_PER_MILLISECOND).round());
     }
 

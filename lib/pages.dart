@@ -1,21 +1,21 @@
 import 'dart:ui';
 
 final pages = [
-  new Page(
+  new PageViewModel(
     const Color(0xFF678FB4),
     'assets/hotels.png',
     'Hotels',
     'All hotels and hostels are sorted by hospitality rating',
     'assets/key.png'
   ),
-  new Page(
+  new PageViewModel(
     const Color(0xFF65B0B4),
     'assets/banks.png',
     'Banks',
     'We carefully verify all banks before adding them into the app',
     'assets/wallet.png'
   ),
-  new Page(
+  new PageViewModel(
     const Color(0xFF9B90BC),
     'assets/stores.png',
     'Store',
@@ -24,14 +24,14 @@ final pages = [
   ),
 ];
 
-class Page {
+class PageViewModel {
   final Color color;
   final String heroAssetPath;
   final String title;
   final String body;
   final String iconAssetPath;
 
-  Page(
+  PageViewModel(
     this.color,
     this.heroAssetPath,
     this.title,
@@ -40,36 +40,26 @@ class Page {
   );
 }
 
-class VisiblePage {
-  final Page page;
-  final double visibleAmount;
-
-  VisiblePage(
-    this.page,
-    this.visibleAmount,
-  );
-}
-
-class PagerIndicator {
-  final List<Page> pages;
+class PagerIndicatorViewModel {
+  final List<PageViewModel> pages;
   final int activeIndex;
   final double transitionAmount; // [-1.0, 1.0] where negative means moving to previous and positive means moving to next.
 
-  PagerIndicator(
+  PagerIndicatorViewModel(
     this.pages,
     this.activeIndex,
     this.transitionAmount,
   );
 }
 
-class PagerBubble {
+class PagerBubbleViewModel {
   final String iconAssetPath;
   final Color color;
   final bool isHollow;
   final bool isActive;
   final double transitionAmount;
 
-  PagerBubble(
+  PagerBubbleViewModel(
     this.iconAssetPath,
     this.color,
     this.isHollow,
