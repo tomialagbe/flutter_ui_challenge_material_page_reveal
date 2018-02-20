@@ -27,13 +27,46 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => new _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
-  static const FULL_TRANSITION_PX = 300.0;
+  static const FULL_TRANSITION_PX = 300.0; // How far the user drags until a page transition is complete
+  static const PERCENT_PER_MILLISECOND = 0.005; // How quickly a transition animation should move
 
   int _activeIndex = 0;
   Offset _dragStart;
   double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
+
+  int _nextIndex;
+  double _startTransitionAmount;
+  double _endTransitionAmount;
+  AnimationController completionAnimationController;
+
+  @override
+  void initState() {
+    super.initState();
+    completionAnimationController = new AnimationController(vsync: this)
+      ..addListener(() {
+//        print('Updating transition amount: ${completionAnimationController.value}');
+        setState(() {
+          _transitionAmount = lerpDouble(_startTransitionAmount, _endTransitionAmount, completionAnimationController.value);
+        });
+      })
+      ..addStatusListener((AnimationStatus status) {
+        if (status == AnimationStatus.completed) {
+          setState(() {
+            _transitionAmount = 0.0;
+            _activeIndex = _nextIndex;
+          });
+        }
+      });
+  }
+
+
+  @override
+  void dispose() {
+    completionAnimationController.dispose();
+    super.dispose();
+  }
 
   _onDragStart(DragStartDetails details) {
     _dragStart = details.globalPosition;
@@ -54,15 +87,32 @@ class _MyHomePageState extends State<MyHomePage> {
 
   _onDragEnd(DragEndDetails details) {
     setState(() {
+      // The user is done dragging. Animate the rest of the way.
       if (null != _transitionAmount) {
+        _startTransitionAmount = _transitionAmount;
+        var duration;
         if (_transitionAmount.abs() > 0.5) {
-          _activeIndex += (_transitionAmount / _transitionAmount.abs()).round();
+          // User dragged far enough to continue to next screen.
+          _nextIndex = _activeIndex + (_transitionAmount / _transitionAmount.abs()).round();
+          _endTransitionAmount = _transitionAmount / _transitionAmount.abs();
+
+          final transitionRemaining = 1.0 - _transitionAmount.abs();
+          duration = new Duration(milliseconds: (transitionRemaining / PERCENT_PER_MILLISECOND).round());
+          completionAnimationController.duration = duration;
+        } else {
+          // User did not drag far enough to go to next screen. Return to previous screen.
+          _nextIndex = _activeIndex;
+          _endTransitionAmount = 0.0;
+
+          duration = new Duration(milliseconds: (_transitionAmount.abs() / PERCENT_PER_MILLISECOND).round());
+          completionAnimationController.duration = duration;
         }
+//        print('Animating from: $_startTransitionAmount, to: $_endTransitionAmount, in: ${duration.inMilliseconds}');
+        completionAnimationController.forward(from: 0.0);
       }
 
       // Cleanup
       _dragStart = null;
-      _transitionAmount = 0.0;
     });
   }
 
@@ -158,10 +208,13 @@ class PageUi extends StatelessWidget {
               transform: new Matrix4.translationValues(0.0, 50.0 * (1.0 - visiblePage.visibleAmount), 0.0),
               child: new Opacity(
                 opacity: visiblePage.visibleAmount,
-                child: new Image.asset(
-                  visiblePage.page.heroAssetPath,
-                  width: 200.0,
-                  height: 200.0,
+                child: new Padding(
+                  padding: const EdgeInsets.only(bottom: 25.0),
+                  child: new Image.asset(
+                    visiblePage.page.heroAssetPath,
+                    width: 200.0,
+                    height: 200.0,
+                  ),
                 ),
               ),
             ),
@@ -209,7 +262,7 @@ class PageUi extends StatelessWidget {
 /// the next page.
 const MAX_INDICATOR_SIZE = 40.0;
 const MIN_INDICATOR_SIZE = 15.0;
-const INDICATOR_X_PADDING = 5.0;
+const INDICATOR_X_PADDING = 3.0;
 const BUBBLE_COLOR = const Color(0x88FFFFFF);
 
 class PagerIndicatorUi extends StatelessWidget {
@@ -232,9 +285,9 @@ class PagerIndicatorUi extends StatelessWidget {
       if (isActive) {
         transitionAmount = 1.0 - viewModel.transitionAmount.abs();
       } else if ((pageIndex - transitionPosition).abs() < 1.0){
-        print('Position: $transitionPosition');
+//        print('Position: $transitionPosition');
         transitionAmount = (transitionPosition - viewModel.activeIndex).abs();
-        print('Transition amount: $transitionAmount');
+//        print('Transition amount: $transitionAmount');
       }
 
       return new Padding(
