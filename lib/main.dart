@@ -34,74 +34,82 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   int _activeIndex = 0;
   double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
 
-  // Dragging
-  StreamController<PageDragUpdate> pageDragUpdateStreamController;
-
-  // Animating
-  StreamController<PageAnimateUpdate> pageAnimateUpdateStreamController;
-  AnimatedPageDragger animatedPageDragger;
+  // Dragging and Animating
+  StreamController<PageTransitionUpdate> _pageTransitionUpdateStreamController;
+  AnimatedPageDragger _animatedPageDragger;
   int _nextIndex;
 
   @override
   void initState() {
     super.initState();
+    _initPageTransitionStream();
+  }
 
-    pageDragUpdateStreamController = new StreamController<PageDragUpdate>();
-    pageDragUpdateStreamController.stream.listen((PageDragUpdate update) {
-      if (update.dragUpdateType == DragUpdateType.dragging) {
-        setState(() {
-//          print('onDragEvent: ${update.dragDirection}, ${update.transitionAmount}');
-          if (update.dragDirection == DragDirection.rightToLeft) {
-            _transitionAmount = update.transitionAmount;
-          } else {
-            _transitionAmount = -update.transitionAmount;
-          }
-        });
-      } else if (update.dragUpdateType == DragUpdateType.dragEnded) {
-        setState(() {
-          // The user is done dragging. Animate the rest of the way.
-          var transitionGoal;
-          if (_transitionAmount.abs() > 0.5) {
-            // User dragged far enough to continue to next screen.
-            transitionGoal = TransitionGoal.openPage;
-            _nextIndex = update.dragDirection == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
-          } else {
-            // User did not drag far enough to go to next screen. Return to previous screen.
-            transitionGoal = TransitionGoal.closePage;
-            _nextIndex = _activeIndex;
-          }
-
-          animatedPageDragger = new AnimatedPageDragger(
-              direction: update.dragDirection,
-              transitionGoal: transitionGoal,
-              transitionAmount: update.transitionAmount,
-              vsync: this,
-              pageAnimateStream: pageAnimateUpdateStreamController,
-          )..run();
-        });
+  _initPageTransitionStream() {
+    _pageTransitionUpdateStreamController = new StreamController<PageTransitionUpdate>();
+    _pageTransitionUpdateStreamController.stream.listen((PageTransitionUpdate update) {
+      if (update.updateType == PageTransitionUpdateType.dragging) {
+        _onDragging(update);
+      } else if (update.updateType == PageTransitionUpdateType.dragEnded) {
+        _onDragEnded(update);
+      } else if (update.updateType == PageTransitionUpdateType.animating) {
+        _onAnimating(update);
+      } else if (update.updateType == PageTransitionUpdateType.animationEnded) {
+        _onAnimationEnded();
       }
     });
+  }
 
-    pageAnimateUpdateStreamController = new StreamController<PageAnimateUpdate>();
-    pageAnimateUpdateStreamController.stream.listen((PageAnimateUpdate update) {
-      if (update.animateUpdateType == AnimateUpdateType.animating) {
-        setState(() => _transitionAmount = update.transitionAmount);
-      } else if (update.animateUpdateType == AnimateUpdateType.animationDone) {
-        setState(() {
-          _transitionAmount = 0.0;
-          _activeIndex = _nextIndex;
-
-          animatedPageDragger.dispose();
-        });
+  _onDragging(PageTransitionUpdate update) {
+    setState(() {
+      if (update.direction == DragDirection.rightToLeft) {
+        _transitionAmount = update.transitionPercent;
+      } else {
+        _transitionAmount = -update.transitionPercent;
       }
+    });
+  }
+
+  _onDragEnded(PageTransitionUpdate update) {
+    setState(() {
+      // The user is done dragging. Animate the rest of the way.
+      var transitionGoal;
+      if (_transitionAmount.abs() > 0.5) {
+        // User dragged far enough to continue to next screen.
+        transitionGoal = TransitionGoal.openPage;
+        _nextIndex = update.direction == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
+      } else {
+        // User did not drag far enough to go to next screen. Return to previous screen.
+        transitionGoal = TransitionGoal.closePage;
+        _nextIndex = _activeIndex;
+      }
+
+      _animatedPageDragger = new AnimatedPageDragger(
+        direction: update.direction,
+        transitionGoal: transitionGoal,
+        transitionAmount: update.transitionPercent,
+        vsync: this,
+        pageAnimateStream: _pageTransitionUpdateStreamController,
+      )..run();
+    });
+  }
+
+  _onAnimating(PageTransitionUpdate update) {
+    setState(() => _transitionAmount = update.transitionPercent);
+  }
+
+  _onAnimationEnded() {
+    setState(() {
+      _transitionAmount = 0.0;
+      _activeIndex = _nextIndex;
+
+      _animatedPageDragger.dispose();
     });
   }
 
   @override
   void dispose() {
-    pageDragUpdateStreamController.close();
-    pageAnimateUpdateStreamController.close();
-
+    _pageTransitionUpdateStreamController.close();
     super.dispose();
   }
 
@@ -137,7 +145,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           new PageDragger(
             canDragLeftToRight: _activeIndex > 0,
             canDragRightToLeft: _activeIndex < pages.length - 1,
-            pageDragStream: pageDragUpdateStreamController
+            pageDragStream: _pageTransitionUpdateStreamController
           ),
         ],
       ),
@@ -384,7 +392,7 @@ class PageDragger extends StatefulWidget {
 
   final bool canDragRightToLeft;
   final bool canDragLeftToRight;
-  final StreamController<PageDragUpdate> pageDragStream;
+  final StreamController<PageTransitionUpdate> pageDragStream;
 
   PageDragger({
     @required this.pageDragStream,
@@ -420,8 +428,8 @@ class _PageDraggerState extends State<PageDragger> {
       _transitionAmount = (dx / FULL_TRANSITION_PX).clamp(minTransitionAmount, maxTransitionAmount);
 
       widget.pageDragStream.add(
-          new PageDragUpdate(
-              DragUpdateType.dragging,
+          new PageTransitionUpdate(
+              PageTransitionUpdateType.dragging,
               _transitionAmount > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight,
               _transitionAmount.abs()
           )
@@ -436,8 +444,8 @@ class _PageDraggerState extends State<PageDragger> {
       // The user is done dragging. Animate the rest of the way.
       if (null != _transitionAmount) {
         widget.pageDragStream.add(
-            new PageDragUpdate(
-                DragUpdateType.dragEnded,
+            new PageTransitionUpdate(
+                PageTransitionUpdateType.dragEnded,
                 _transitionAmount > 0.0 ? DragDirection.rightToLeft : DragDirection.leftToRight,
                 _transitionAmount.abs()
             )
@@ -459,28 +467,6 @@ class _PageDraggerState extends State<PageDragger> {
   }
 }
 
-enum DragDirection {
-  rightToLeft,
-  leftToRight,
-}
-
-enum DragUpdateType {
-  dragging,
-  dragEnded,
-}
-
-class PageDragUpdate {
-  final dragUpdateType;
-  final dragDirection;
-  final transitionAmount;
-
-  PageDragUpdate(
-      this.dragUpdateType,
-      this.dragDirection,
-      this.transitionAmount,
-      );
-}
-
 /// AnimatedPageDragger
 ///
 /// Given an initial page transition amount, a direction, and a goal (open or
@@ -500,7 +486,7 @@ class AnimatedPageDragger {
     @required this.transitionGoal,
     @required transitionAmount,
     @required TickerProvider vsync,
-    @required StreamController<PageAnimateUpdate> pageAnimateStream,
+    @required StreamController<PageTransitionUpdate> pageAnimateStream,
   }) {
     final startTransitionAmount = direction == DragDirection.rightToLeft ? transitionAmount : -transitionAmount;
     var endTransitionAmount;
@@ -523,8 +509,8 @@ class AnimatedPageDragger {
         final animatedTransition = lerpDouble(startTransitionAmount, endTransitionAmount, completionAnimationController.value);
 
         pageAnimateStream.add(
-          new PageAnimateUpdate(
-            AnimateUpdateType.animating,
+          new PageTransitionUpdate(
+            PageTransitionUpdateType.animating,
             this.direction,
             animatedTransition,
           )
@@ -533,8 +519,8 @@ class AnimatedPageDragger {
       ..addStatusListener((AnimationStatus status) {
         if (status == AnimationStatus.completed) {
           pageAnimateStream.add(
-            new PageAnimateUpdate(
-              AnimateUpdateType.animationDone,
+            new PageTransitionUpdate(
+              PageTransitionUpdateType.animationEnded,
               this.direction,
               endTransitionAmount,
             )
@@ -558,19 +544,26 @@ enum TransitionGoal {
   closePage,
 }
 
-enum AnimateUpdateType {
-  animating,
-  animationDone,
+enum DragDirection {
+  rightToLeft,
+  leftToRight,
 }
 
-class PageAnimateUpdate {
-  final animateUpdateType;
-  final dragDirection;
-  final transitionAmount;
+enum PageTransitionUpdateType {
+  dragging,
+  dragEnded,
+  animating,
+  animationEnded,
+}
 
-  PageAnimateUpdate(
-    this.animateUpdateType,
-    this.dragDirection,
-    this.transitionAmount,
+class PageTransitionUpdate {
+  final updateType;
+  final direction;
+  final transitionPercent;
+
+  PageTransitionUpdate(
+    this.updateType,
+    this.direction,
+    this.transitionPercent,
   );
 }
