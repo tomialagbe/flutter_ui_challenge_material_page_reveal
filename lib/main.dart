@@ -30,8 +30,6 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
-  static const PERCENT_PER_MILLISECOND = 0.005; // How quickly a transition animation should move
-
   // Render state at a given moment
   int _activeIndex = 0;
   double _transitionAmount = 0.0; // [-1.0, 1.0], negative means dragging left to right, and positive means dragging right to left.
@@ -39,11 +37,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   // Dragging
   StreamController<PageDragUpdate> pageDragUpdateStreamController;
 
-  // Animation after dragging
+  // Animating
+  StreamController<PageAnimateUpdate> pageAnimateUpdateStreamController;
+  AnimatedPageDragger animatedPageDragger;
   int _nextIndex;
-  double _startTransitionAmount;
-  double _endTransitionAmount;
-  AnimationController completionAnimationController;
 
   @override
   void initState() {
@@ -53,7 +50,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     pageDragUpdateStreamController.stream.listen((PageDragUpdate update) {
       if (update.dragUpdateType == DragUpdateType.dragging) {
         setState(() {
-          print('onDragEvent: ${update.dragDirection}, ${update.transitionAmount}');
+//          print('onDragEvent: ${update.dragDirection}, ${update.transitionAmount}');
           if (update.dragDirection == DragDirection.rightToLeft) {
             _transitionAmount = update.transitionAmount;
           } else {
@@ -63,54 +60,48 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       } else if (update.dragUpdateType == DragUpdateType.dragEnded) {
         setState(() {
           // The user is done dragging. Animate the rest of the way.
-          if (null != update.transitionAmount) {
-            _startTransitionAmount = update.dragDirection == DragDirection.rightToLeft ? update.transitionAmount : -update.transitionAmount;
-            var duration;
-            if (_transitionAmount.abs() > 0.5) {
-              // User dragged far enough to continue to next screen.
-              _nextIndex = update.dragDirection == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
-              _endTransitionAmount = _transitionAmount / _transitionAmount.abs();
-
-              final transitionRemaining = 1.0 - _transitionAmount.abs();
-              duration = new Duration(milliseconds: (transitionRemaining / PERCENT_PER_MILLISECOND).round());
-              completionAnimationController.duration = duration;
-            } else {
-              // User did not drag far enough to go to next screen. Return to previous screen.
-              _nextIndex = _activeIndex;
-              _endTransitionAmount = 0.0;
-
-              duration = new Duration(milliseconds: (_transitionAmount.abs() / PERCENT_PER_MILLISECOND).round());
-              completionAnimationController.duration = duration;
-            }
-//        print('Animating from: $_startTransitionAmount, to: $_endTransitionAmount, in: ${duration.inMilliseconds}');
-            completionAnimationController.forward(from: 0.0);
+          var transitionGoal;
+          if (_transitionAmount.abs() > 0.5) {
+            // User dragged far enough to continue to next screen.
+            transitionGoal = TransitionGoal.openPage;
+            _nextIndex = update.dragDirection == DragDirection.rightToLeft ? _activeIndex + 1 : _activeIndex - 1;
+          } else {
+            // User did not drag far enough to go to next screen. Return to previous screen.
+            transitionGoal = TransitionGoal.closePage;
+            _nextIndex = _activeIndex;
           }
+
+          animatedPageDragger = new AnimatedPageDragger(
+              direction: update.dragDirection,
+              transitionGoal: transitionGoal,
+              transitionAmount: update.transitionAmount,
+              vsync: this,
+              pageAnimateStream: pageAnimateUpdateStreamController,
+          )..run();
         });
       }
     });
 
-    completionAnimationController = new AnimationController(vsync: this)
-      ..addListener(() {
-//        print('Updating transition amount: ${completionAnimationController.value}');
+    pageAnimateUpdateStreamController = new StreamController<PageAnimateUpdate>();
+    pageAnimateUpdateStreamController.stream.listen((PageAnimateUpdate update) {
+      if (update.animateUpdateType == AnimateUpdateType.animating) {
+        setState(() => _transitionAmount = update.transitionAmount);
+      } else if (update.animateUpdateType == AnimateUpdateType.animationDone) {
         setState(() {
-          _transitionAmount = lerpDouble(_startTransitionAmount, _endTransitionAmount, completionAnimationController.value);
-        });
-      })
-      ..addStatusListener((AnimationStatus status) {
-        if (status == AnimationStatus.completed) {
-          setState(() {
-            _transitionAmount = 0.0;
-            _activeIndex = _nextIndex;
-          });
-        }
-      });
-  }
+          _transitionAmount = 0.0;
+          _activeIndex = _nextIndex;
 
+          animatedPageDragger.dispose();
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
     pageDragUpdateStreamController.close();
-    completionAnimationController.dispose();
+    pageAnimateUpdateStreamController.close();
+
     super.dispose();
   }
 
@@ -488,4 +479,98 @@ class PageDragUpdate {
       this.dragDirection,
       this.transitionAmount,
       );
+}
+
+/// AnimatedPageDragger
+///
+/// Given an initial page transition amount, a direction, and a goal (open or
+/// closed), AnimatedPageDragger animates the transition the rest of the way by
+/// emitting [PageAnimateUpdate]s until the transition is complete.
+class AnimatedPageDragger {
+
+  static const PERCENT_PER_MILLISECOND = 0.005; // How quickly a transition animation should move
+
+  final direction;
+  final transitionGoal;
+
+  AnimationController completionAnimationController;
+
+  AnimatedPageDragger({
+    @required this.direction,
+    @required this.transitionGoal,
+    @required transitionAmount,
+    @required TickerProvider vsync,
+    @required StreamController<PageAnimateUpdate> pageAnimateStream,
+  }) {
+    final startTransitionAmount = direction == DragDirection.rightToLeft ? transitionAmount : -transitionAmount;
+    var endTransitionAmount;
+    var duration;
+    if (transitionGoal == TransitionGoal.openPage) {
+      // Animate the transition the rest of the way.
+      endTransitionAmount = direction == DragDirection.rightToLeft ? 1.0 : -1.0;
+
+      final transitionRemaining = 1.0 - transitionAmount;
+      duration = new Duration(milliseconds: (transitionRemaining / PERCENT_PER_MILLISECOND).round());
+    } else {
+      // Animate the transition back to zero.
+      endTransitionAmount = 0.0;
+
+      duration = new Duration(milliseconds: (transitionAmount / PERCENT_PER_MILLISECOND).round());
+    }
+
+    completionAnimationController = new AnimationController(duration: duration, vsync: vsync)
+      ..addListener(() {
+        final animatedTransition = lerpDouble(startTransitionAmount, endTransitionAmount, completionAnimationController.value);
+
+        pageAnimateStream.add(
+          new PageAnimateUpdate(
+            AnimateUpdateType.animating,
+            this.direction,
+            animatedTransition,
+          )
+        );
+      })
+      ..addStatusListener((AnimationStatus status) {
+        if (status == AnimationStatus.completed) {
+          pageAnimateStream.add(
+            new PageAnimateUpdate(
+              AnimateUpdateType.animationDone,
+              this.direction,
+              endTransitionAmount,
+            )
+          );
+        }
+      });
+  }
+
+  run() {
+    completionAnimationController.forward(from: 0.0);
+  }
+
+  dispose() {
+    completionAnimationController.dispose();
+  }
+
+}
+
+enum TransitionGoal {
+  openPage,
+  closePage,
+}
+
+enum AnimateUpdateType {
+  animating,
+  animationDone,
+}
+
+class PageAnimateUpdate {
+  final animateUpdateType;
+  final dragDirection;
+  final transitionAmount;
+
+  PageAnimateUpdate(
+    this.animateUpdateType,
+    this.dragDirection,
+    this.transitionAmount,
+  );
 }
