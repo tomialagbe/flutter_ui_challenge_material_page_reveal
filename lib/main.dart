@@ -31,6 +31,7 @@ class _MyHomePageState extends State<MyHomePage> {
         children: [
           new Page(
             viewModel: pages[2],
+            percentVisible: 1.0,
           ),
         ],
       ),
