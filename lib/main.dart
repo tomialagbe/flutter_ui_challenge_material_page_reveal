@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_page_reveal_published/pages.dart';
 
 void main() => runApp(new MyApp());
 
@@ -26,8 +27,12 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return new Scaffold(
-      body: new Center(
-
+      body: new Stack(
+        children: [
+          new Page(
+            viewModel: pages[2],
+          ),
+        ],
       ),
     );
   }
