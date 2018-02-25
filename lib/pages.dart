@@ -95,13 +95,13 @@ class PageViewModel {
   final String heroAssetPath;
   final String title;
   final String body;
-  final String iconAssetIcon;
+  final String iconAssetPath;
 
   PageViewModel(
     this.color,
     this.heroAssetPath,
     this.title,
     this.body,
-    this.iconAssetIcon,
+    this.iconAssetPath,
   );
 }

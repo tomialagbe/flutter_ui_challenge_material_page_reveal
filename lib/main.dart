@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:material_page_reveal_published/page_reveal.dart';
+import 'package:material_page_reveal_published/pager_indicator.dart';
 import 'package:material_page_reveal_published/pages.dart';
 
 void main() => runApp(new MyApp());
@@ -39,6 +40,14 @@ class _MyHomePageState extends State<MyHomePage> {
             child: new Page(
               viewModel: pages[1],
               percentVisible: 1.0,
+            ),
+          ),
+          new PagerIndicator(
+            viewModel: new PagerIndicatorViewModel(
+              pages,
+              1,
+              SlideDirection.none,
+              0.0,
             ),
           ),
         ],
