@@ -27,9 +27,10 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => new _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   StreamController<SlideUpdate> slideUpdateStream;
+  AnimatedPageDragger animatedPageDragger;
 
   int activeIndex = 0;
   int nextPageIndex = 0;
@@ -42,6 +43,7 @@ class _MyHomePageState extends State<MyHomePage> {
     slideUpdateStream.stream.listen((SlideUpdate event) {
       setState(() {
         if (event.updateType == UpdateType.dragging) {
+          print('Sliding ${event.direction} at ${event.slidePercent}');
           slideDirection = event.direction;
           slidePercent = event.slidePercent;
 
@@ -53,14 +55,40 @@ class _MyHomePageState extends State<MyHomePage> {
             nextPageIndex = activeIndex;
           }
         } else if (event.updateType == UpdateType.doneDragging) {
+          print('Done dragging.');
           if (slidePercent > 0.5) {
-            activeIndex = slideDirection == SlideDirection.leftToRight
-                ? activeIndex - 1
-                : activeIndex + 1;
+            animatedPageDragger = new AnimatedPageDragger(
+              slideDirection: slideDirection,
+              transitionGoal: TransitionGoal.open,
+              slidePercent: slidePercent,
+              slideUpdateStream: slideUpdateStream,
+              vsync: this,
+            );
+          } else {
+            animatedPageDragger = new AnimatedPageDragger(
+              slideDirection: slideDirection,
+              transitionGoal: TransitionGoal.close,
+              slidePercent: slidePercent,
+              slideUpdateStream: slideUpdateStream,
+              vsync: this,
+            );
+
+            nextPageIndex = activeIndex;
           }
+
+          animatedPageDragger.run();
+        } else if (event.updateType == UpdateType.animating) {
+          print('Sliding ${event.direction} at ${event.slidePercent}');
+          slideDirection = event.direction;
+          slidePercent = event.slidePercent;
+        } else if (event.updateType == UpdateType.doneAnimating) {
+          print('Done animating. Next page index: $nextPageIndex');
+          activeIndex = nextPageIndex;
 
           slideDirection = SlideDirection.none;
           slidePercent = 0.0;
+
+          animatedPageDragger.dispose();
         }
       });
     });
